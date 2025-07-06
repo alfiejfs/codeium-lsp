@@ -10,6 +10,7 @@ mod codeium;
 mod util;
 
 pub use codeium::PUBLIC_API_KEY;
+use util::log;
 
 #[derive(Debug)]
 pub struct Lsp {
@@ -59,10 +60,15 @@ impl LanguageServer for Lsp {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let msg = self.codeium.completion(params).await;
 
-        let response = CompletionResponse::Array(vec![CompletionItem {
-            label: msg,
-            ..Default::default()
-        }]);
+        log("into called").await;
+        let completions: Vec<_> = msg.into();
+        log(format!("into done. found {} completions", completions.len()).as_str()).await;
+
+        for completion in &completions {
+            log(format!("completion: {:?}", completion).as_str()).await;
+        }
+
+        let response = CompletionResponse::Array(completions);
 
         Ok(Some(response))
     }

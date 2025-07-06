@@ -1,3 +1,5 @@
+use tokio::{fs::OpenOptions, io::AsyncWriteExt};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContentAnalysis {
     pub content_before: String,
@@ -72,7 +74,15 @@ impl ContentAnalysis {
     }
 }
 
-// Convenience function that matches the original TypeScript signature
-pub async fn get_content(contents: &str, line: usize, column: usize) -> ContentAnalysis {
-    ContentAnalysis::new(contents, line, column)
+pub async fn log(message: &str) {
+    let path = "/Users/alfiejfs/codeium-log";
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await
+    {
+        let _ = file.write_all(message.as_bytes()).await;
+        let _ = file.write_all(b"\n").await;
+    }
 }

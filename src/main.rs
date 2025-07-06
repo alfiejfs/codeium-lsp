@@ -10,5 +10,5 @@ async fn main() {
         LspService::new(|client| Lsp::new(client, codeium_lsp::PUBLIC_API_KEY.to_string()));
     Server::new(stdin, stdout, socket).serve(service).await;
 
-    // This is something
+    // Generate something to add 5 + 3 and print it out
 }

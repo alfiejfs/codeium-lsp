@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
-use tower_lsp::lsp_types::CompletionParams;
+use serde_json::Value;
+use tower_lsp::lsp_types::{
+    CompletionItem, CompletionItemKind, CompletionParams, InsertTextFormat,
+};
 use uuid::Uuid;
 
-use crate::util::ContentAnalysis;
+use crate::util::{ContentAnalysis, log};
 
 pub const PUBLIC_API_KEY: &str = "d49954eb-cfba-4992-980f-d8fb37f0e942";
 
@@ -35,7 +38,7 @@ impl CompletionMetadata {
             ide_name: "web".to_string(),
             ide_version: "unknown".to_string(),
             extension_version: "1.6.13".to_string(),
-            extension_name: "codeium-lsp".to_string(),
+            extension_name: "helix-gpt".to_string(),
             api_key: api.key.clone(),
             session_id: api.session_id.to_string(),
         }
@@ -102,6 +105,71 @@ pub struct CodeiumApi {
     client: reqwest::Client,
 }
 
+pub struct CodeiumResponse {
+    pub raw_completions: Vec<String>,
+}
+
+impl CodeiumResponse {
+    fn from_codeium_response(resp: &str) -> CodeiumResponse {
+        let parsed: Value = serde_json::from_str(resp).unwrap();
+
+        let completion_items = parsed.as_object().unwrap().get("completionItems");
+
+        let raw_completions = match completion_items {
+            Some(items) => {
+                let items = items.as_array().unwrap();
+                items
+                    .into_iter()
+                    .map(|v| {
+                        v.as_object()
+                            .unwrap()
+                            .get("completion")
+                            .unwrap()
+                            .as_object()
+                            .unwrap()
+                            .get("text")
+                            .unwrap()
+                            .to_string()
+                    })
+                    .collect()
+            }
+            None => vec![],
+        };
+
+        Self { raw_completions }
+    }
+}
+
+impl From<CodeiumResponse> for Vec<CompletionItem> {
+    fn from(resp: CodeiumResponse) -> Self {
+        let completions = resp
+            .raw_completions
+            .into_iter()
+            .map(|text| {
+                // truncate label to max 20 chars
+                let label = if text.len() > 20 {
+                    text.chars().take(20).collect()
+                } else {
+                    text.clone()
+                };
+
+                CompletionItem {
+                    label,
+                    kind: Some(CompletionItemKind::TEXT),
+                    preselect: Some(true),
+                    detail: Some(text.clone()),
+                    insert_text: Some(text.clone()),
+                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    additional_text_edits: None,
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        completions
+    }
+}
+
 impl CodeiumApi {
     pub fn new(key: String) -> Self {
         let session_id = Uuid::new_v4();
@@ -113,7 +181,7 @@ impl CodeiumApi {
         }
     }
 
-    pub async fn completion(&self, params: CompletionParams) -> String {
+    pub async fn completion(&self, params: CompletionParams) -> CodeiumResponse {
         // concat strings hard :(
         let req_path = [API_BASE, COMPLETIONS_PATH].join("/");
         let basic_token = [self.key.clone(), self.session_id.to_string()].join("-");
@@ -126,15 +194,16 @@ impl CodeiumApi {
             other_documents: vec![],
         };
 
-        let res = self
+        let req = self
             .client
             .post(req_path)
             .header("Content-Type", "application/json")
             .header("Authorization", auth)
-            .json(&body)
-            .send()
-            .await;
+            .json(&body);
 
-        res.unwrap().text().await.unwrap()
+        let res = req.send().await;
+        let text = res.unwrap().text().await.unwrap();
+
+        CodeiumResponse::from_codeium_response(&text)
     }
 }
