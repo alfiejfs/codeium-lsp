@@ -1,8 +1,8 @@
 use codeium::CodeiumApi;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, InitializeParams,
-    InitializeResult, InitializedParams, MessageType, ServerCapabilities,
+    CompletionOptions, CompletionParams, CompletionResponse, InitializeParams, InitializeResult,
+    InitializedParams, MessageType, ServerCapabilities,
 };
 use tower_lsp::{Client, LanguageServer};
 

@@ -5,7 +5,7 @@ use tower_lsp::lsp_types::{
 };
 use uuid::Uuid;
 
-use crate::util::{ContentAnalysis, log};
+use crate::util::ContentAnalysis;
 
 pub const PUBLIC_API_KEY: &str = "d49954eb-cfba-4992-980f-d8fb37f0e942";
 
@@ -70,14 +70,30 @@ impl CompletionDocument {
             params.text_document_position.position.character as usize,
         );
 
+        // Detect line ending from file content
+        let line_ending = if file_contents.contains("\r\n") {
+            "\r\n"
+        } else if file_contents.contains("\r") {
+            "\r"
+        } else {
+            "\n"
+        }
+        .to_string();
+
+        const WIN: usize = 2048;
+        let off = analysis.cursor_position;
+        let start = off.saturating_sub(WIN);
+        let end = (off + WIN).min(file_contents.len());
+        let window_text = &file_contents[start..end];
+
         Self {
-            editor_language: "rust".to_string(),
+            editor_language: "rust".into(),
             language: 36,
-            cursor_offset: analysis.cursor_position,
-            line_ending: "\n".to_string(),
+            cursor_offset: off - start, // adjust offset into the window
+            line_ending,
             absolute_path: document_uri.to_string(),
             relative_path: document_uri.to_string(),
-            text: file_contents,
+            text: window_text.to_string(),
         }
     }
 }
@@ -142,31 +158,30 @@ impl CodeiumResponse {
 
 impl From<CodeiumResponse> for Vec<CompletionItem> {
     fn from(resp: CodeiumResponse) -> Self {
-        let completions = resp
-            .raw_completions
+        // Turn the raw completions into completion response
+        resp.raw_completions
             .into_iter()
-            .map(|text| {
-                // truncate label to max 20 chars
-                let label = if text.len() > 20 {
-                    text.chars().take(20).collect()
-                } else {
-                    text.clone()
-                };
-
-                CompletionItem {
-                    label,
-                    kind: Some(CompletionItemKind::TEXT),
-                    preselect: Some(true),
-                    detail: Some(text.clone()),
-                    insert_text: Some(text.clone()),
-                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                    additional_text_edits: None,
-                    ..Default::default()
-                }
+            .enumerate()
+            .map(|(index, completion_text)| CompletionItem {
+                label: completion_text.clone(),
+                kind: Some(CompletionItemKind::TEXT), // or whatever default kind you want
+                detail: None,
+                documentation: None,
+                deprecated: Some(false),
+                preselect: Some(index == 0), // preselect first item
+                sort_text: Some(format!("{:04}", index)), // sort by index
+                filter_text: Some(completion_text.clone()),
+                insert_text: Some(completion_text),
+                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                text_edit: None,
+                additional_text_edits: None,
+                command: None,
+                commit_characters: None,
+                data: None,
+                tags: None,
+                ..Default::default()
             })
-            .collect();
-
-        completions
+            .collect()
     }
 }
 
@@ -203,7 +218,6 @@ impl CodeiumApi {
 
         let res = req.send().await;
         let text = res.unwrap().text().await.unwrap();
-
         CodeiumResponse::from_codeium_response(&text)
     }
 }
